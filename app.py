@@ -5,8 +5,8 @@ import time
 import collections
 
 ##edited
-from keras import load_model
-model = load_model(path)
+#from keras import *
+#model = load_model(path)
 
 ##edited
 
@@ -117,6 +117,7 @@ hand_cascade = cv2.CascadeClassifier('aGest.xml')
 cap = cv2.VideoCapture(0)
 
 ##edited
+'''
 def predict_image(image):
     image = np.array(image, dtype='float32')
     image /= 255
@@ -130,7 +131,7 @@ def predict_image(image):
     # display just 2 digits beyond the decimal point.
     score = float("%0.2f" % (max(pred_array[0]) * 100))
 ##edited
-
+ '''
 
 
 while(True):
@@ -138,17 +139,18 @@ while(True):
     ret, frame = cap.read()
 
 
-#edited
+    #edited
 
-
+    '''
     k = cv2.waitKey(10)
     if k == 32: # if spacebar pressed
         frame = np.stack((frame,)*3, axis=-1)
         frame = cv2.resize(frame, (224, 224))
         frame = frame.reshape(1, 224, 224, 3)
         prediction, score = predict_image(frame)
-#edited
 
+    #edited
+    '''
     # get the RoI of the plam, None will be returned if there is no palm detected 
     roi = getROI(frame,hand_cascade)
 
