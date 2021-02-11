@@ -1,215 +1,308 @@
-import numpy as np
+import tkinter
 import cv2
-import math
 import time
-import collections
+import numpy as np
+from tkinter import *
+import tkinter.messagebox
 
-##edited
-#from keras import *
-#model = load_model(path)
+import random
 
-##edited
+import matplotlib.pyplot as plt
+from sklearn.metrics import pairwise
 
-roi_count = 0
-last_roi = None
-state = True
-state_count = 10
-frame_no = 0
-gesture_list = []
+##
+#for tkiter frame
+
+rt = Tk()
+rt.config(background="orange")
+rt.geometry("380x750+200+2")
+rt.title("calc")
+
+## creating frame ###
+top = Frame(rt,width =150,height=10,bg="orange" ,relief = SUNKEN)
+top.pack(side =TOP)
+left=Frame(rt,width=10,height=50,bg="blue",relief=SUNKEN)
+left.pack(side=LEFT)
+right = Frame(rt,width=1250,height=750,bg="green",relief=SUNKEN)
+right.pack(side=RIGHT)
+Ll1=StringVar()
+Ll2=StringVar()
+dd = Entry(left,textvariable=Ll1,width=3,bg="aqua",font=("arial",55),justify='left')
+dd.grid(row=3,columnspan=295,rowspan=1,column=0)
+
+
+
+global rr1
+global rr2
+rr1=0
+rr2=0
+def add(i, back, tup):
+    (x, y, w, h) = tup
+    num1 = 0
+    num2 = 0
+    for j in range(0, 2):
+        while True:
+            t = time.time()
+            _,frame=cap.read()
+            if i<50:
+                i+=1
+                if back is None:
+                    back=frame[y:y+h,x:x+w].copy()
+                    back=np.float32(back)
+                else:
+                    cv2.accumulateWeighted(frame[y:y+h,x:x+w].copy(),back,0.2)
+            else:
+                #print(back.shape,frame.shape)
+                back=cv2.convertScaleAbs(back)
+                back_gray=cv2.cvtColor(back,cv2.COLOR_BGR2GRAY)
+                frame_gray=cv2.cvtColor(frame[y:y+h,x:x+w],cv2.COLOR_BGR2GRAY)
+
+                img=cv2.absdiff(back_gray,frame_gray)
+
+                _,img=cv2.threshold(img,0,255,cv2.THRESH_BINARY+cv2.THRESH_OTSU)
+                con,hie=cv2.findContours(img,cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                img2=img.copy()
+
+                con=max(con,key=cv2.contourArea)
+                conv_hull=cv2.convexHull(con)
+                cv2.drawContours(img,[conv_hull],-1,225,3)
+
+                top=tuple(conv_hull[conv_hull[:,:,1].argmin()][0])
+                bottom=tuple(conv_hull[conv_hull[:,:,1].argmax()][0])
+                left=tuple(conv_hull[conv_hull[:,:,0].argmin()][0])
+                right=tuple(conv_hull[conv_hull[:,:,0].argmax()][0])
+                cx=(left[0]+right[0])//2
+                cy=(top[1]+bottom[1])//2
+
+                dist=pairwise.euclidean_distances([left,right,bottom,top],[[cx,cy]])[0]
+                radi=int(0.80*dist)
+
+                circular_roi=np.zeros_like(img,dtype='uint8')
+                cv2.circle(circular_roi,(cx,cy),radi,255,8)
+                wighted=cv2.addWeighted(img.copy(),0.6,circular_roi,0.4,2)
+
+                mask=cv2.bitwise_and(img2,img2,mask=circular_roi)
+                #mask
+                con,hie=cv2.findContours(mask.copy(),cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
+
+                circumfrence=2*np.pi*radi
+                count = 0
+                for cnt in con:
+                    (m_x,m_y,m_w,m_h)=cv2.boundingRect(cnt)
+                    out_wrist_range=(cy+(cy*0.25))>(m_y+m_h)
+                    limit_pts=(circumfrence*0.25)>cnt.shape[0]
+                    if limit_pts and out_wrist_range:
+                        #print(limit_pts,out_wrist_range)
+                        count+=1
+
+
+
+                cv2.putText(frame,'count: '+str(count),(460,70),cv2.FONT_HERSHEY_SIMPLEX ,1,(0,250,0),thickness=4)
+                cv2.rectangle(frame,(x,y),(x+w,y+h),255,3)
+                cv2.imshow('mask',mask)
+                cv2.imshow('frame',frame)
+                cv2.imshow('weight',wighted)
+
+
+            k=cv2.waitKey(30) & 0xff
+            if k==27:
+                if(j==0):
+                    numm1 = count
+
+
+                else:
+                    numm2 = count
+
+
+
+                break
+
+    cap.release()
+    cv2.destroyAllWindows()
+    print(numm1+numm2)
+    rr1=numm1+numm2
+    Ll1.set(str(rr1))
+
+cap=cv2.VideoCapture(0)
+i=0
+_,frame=cap.read()
+back=None
+roi=cv2.selectROI(frame)
+tup=tuple(map(int,roi))
+
+
+##creating gui normal for normal calculator
+
+
 ##
 
-def fastest_calc_dist(x,y):
-    return math.sqrt(sum([(xi-yi)**2 for xi,yi in zip(x,y)]))
+operator =""
+operator1=""
+d=""# global variable operator
+##creating window and its geometry ###
 
-def detectGesture(src,roi_rect,thresh):
-    global gesture_list
-    p,q,r,s = roi_rect
-    contours, hierarchy = cv2.findContours(thresh.copy(),cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-    line_count = 0;
+## creating calc ##
 
-    if len(contours):
-        # find contour with max area
-        cnt = max(contours, key = lambda x: cv2.contourArea(x))
-
-        # create bounding rectangle around the contour (can skip below two lines)
-        x, y, w, h = cv2.boundingRect(cnt)
-        cv2.rectangle(src, (p+x, q+y), (p+x+w, q+y+h), (0, 0, 255), 0)
-
-        # finding convex hull
-        hull = cv2.convexHull(cnt)
-
-        # drawing contours
-        drawing = np.zeros(src.shape,np.uint8)
-
-        # finding convex hull
-        hull = cv2.convexHull(cnt, returnPoints=False)
-
-        # finding convexity defects
-        defects = cv2.convexityDefects(cnt, hull)
-        count_defects = 0
-
-        # applying Cosine Rule to find angle for all defects (between fingers)
-
-        if(defects is not None and len(defects) >0):
-            if(defects.shape[0] != None):
-                for i in range(defects.shape[0]):
-                    s,e,f,d = defects[i,0]
-
-                    start = tuple(cnt[s][0])
-                    end = tuple(cnt[e][0])
-                    far = tuple(cnt[f][0])
-
-                    ls = [[start[0], start[1]],[end[0] ,end[1]],[far[0] ,far[0]]]
-                    ctr = np.array(ls).reshape((-1,1,2)).astype(np.int32)
-
-                    # find length of all sides of triangle
-                    a = math.sqrt((end[0] - start[0])**2 + (end[1] - start[1])**2)
-                    b = math.sqrt((far[0] - start[0])**2 + (far[1] - start[1])**2)
-                    c = math.sqrt((end[0] - far[0])**2 + (end[1] - far[1])**2)
-
-                    # apply cosine rule here
-                    angle = math.acos((b**2 + c**2 - a**2)/(2*b*c)) * 57
-
-                    # ignore angles > 90 and highlight rest with red dots
-                    if angle <= 90 and cv2.contourArea(ctr) > 2000:
-                        count_defects += 1
-                        far = (far[0] +p ,far[1] + q)
-                        cv2.circle(src, far, 1, [0,0,255], -1)
+txt = StringVar()
+txt2 = StringVar()
+e1 = Entry(right,textvariable=txt2,width=9,bg="aqua",font=("arial",55),justify='right')
+e1.grid(row=2,columnspan=295,rowspan=1,column=1)
+e2 = Entry(right,textvariable=txt,width=9,bg="aqua",font=("arial",55),justify='right')
+e2.grid(row=1,columnspan=295,rowspan=1,column=1)
 
 
-                    start = (start[0] +p ,start[1] + q)
-                    end = (end[0] +p ,end[1] + q)
-
-                    cv2.line(src,start, end, [0,255,0], 2)
-
-                gesture_list.append(count_defects+1)
-
-        cv2.imshow('frame',src)
-
-def gestureRecognition(src,roi_rect,hand_roi):
-    lower = np.array([0, 48, 80], dtype = "uint8")
-    upper = np.array([20, 255, 255], dtype = "uint8")
-
-    converted = cv2.cvtColor(hand_roi, cv2.COLOR_BGR2HSV)
-    skinMask = cv2.inRange(converted, lower, upper)
-
-    #cv2.imshow('converted',converted)   
-    #cv2.imshow('skinMask',skinMask)
-
-    kernel = np.ones((5,5), np.uint8)
-
-    #img_erosion = cv2.erode(skinMask, kernel, iterations=1)
-    img_dilated = cv2.dilate(skinMask, kernel, iterations=3)
-    #cv2.imshow('img_dilation',img_dilation)
-
-    detectGesture(src,roi_rect,img_dilated)
-
-def getROI(frame,cascade):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    rois = cascade.detectMultiScale(gray, 1.3, 5)
-    if(len(rois) > 0):
-        return rois[0]
-
-    return None
 
 
-hand_cascade = cv2.CascadeClassifier('aGest.xml')
-cap = cv2.VideoCapture(0)
-
-##edited
-'''
-def predict_image(image):
-    image = np.array(image, dtype='float32')
-    image /= 255
-    pred_array = model.predict(image)
-
-    # model.predict() returns an array of probabilities -
-    # np.argmax grabs the index of the highest probability.
-    result = gesture_names[np.argmax(pred_array)]
-
-    # A bit of magic here - the score is a float, but I wanted to
-    # display just 2 digits beyond the decimal point.
-    score = float("%0.2f" % (max(pred_array[0]) * 100))
-##edited
- '''
+def l(txt2):
+    b(txt2)
 
 
-while(True):
-    # Capture frame-by-frame
-    ret, frame = cap.read()
+def b3():
+    global operator1
+    global operator
+    global d
+    if(d=="+"):
+        operator=float(operator)
+        operator1=float(operator1)
+        txt2.set("%d+%d="%(operator1,operator))
+        operator=operator+operator1
+        txt.set(str(operator))
+    elif(d=="-"):
+        operator=float(operator)
+        operator1=float(operator1)
+        txt2.set("%d-%d="%(operator1,operator))
+        operator=float(operator1)-float(operator)
+        txt.set(str(operator))
+    elif(d=="*"):
+        operator=float(operator)
+        operator1=float(operator1)
+        txt2.set("%dx%d="%(operator1,operator))
+        operator=float(operator1)*float(operator)
+        txt.set(str(operator))
+    elif(d=="/"):
+        operator=float(operator)
+        operator1=float(operator1)
+        txt2.set("%d/%d="%(operator1,operator))
+        operator=float(operator1)/float(operator)
+        txt.set(str(operator))
+    elif(d=="%"):
+        operator=float(operator)
+        operator1=float(operator1)
+        txt2.set("%d%d="%(operator1,operator))
+        operator=float(operator1)%float(operator)
+        txt.set(str(operator))
 
 
-    #edited
 
-    '''
-    k = cv2.waitKey(10)
-    if k == 32: # if spacebar pressed
-        frame = np.stack((frame,)*3, axis=-1)
-        frame = cv2.resize(frame, (224, 224))
-        frame = frame.reshape(1, 224, 224, 3)
-        prediction, score = predict_image(frame)
+def b1(sign):
+    global operator1
+    global operator
+    global d
+    operator1=str(operator)
+    operator=""
+    d=sign
+    txt2.set(operator1+sign)
 
-    #edited
-    '''
-    # get the RoI of the plam, None will be returned if there is no palm detected 
-    roi = getROI(frame,hand_cascade)
+    #txt.set(operator)
 
-
-    if not(roi is None):
-        # check consecutive 10 palm detections to detect event detection 
-        if(roi_count != 10):
-            roi_count = roi_count + 1
-
-        if(roi_count == 10):
-            cv2.putText(frame,"Event Detected", (50, 50),cv2.FONT_HERSHEY_SIMPLEX,2, 1, 2) # will show if event detected
+def bv():
+    if(d!=""):
+        b3()
 
 
-        last_roi = roi
-        x,y,w,h = roi
-        frame = cv2.rectangle(frame,(x,y),(x+w,y+h),(255,0,0),2)
-        state = True
-    else:
+def b(num2):
+    global operator
+    global operator1
+    global d
+    operator=str(operator)+str(num2)
+    txt2.set(operator)
+    txt2.set(operator1+d+operator)
+    bv()
+# txt.set(operator)
 
-        if(not state and state_count > 0):
-            # update the boundry to detect hand
-            x,y,w,h = last_roi
-            x = x - w
-            y = y - h
-            w = w * 3
-            h = h * 2
-            if(x < 0):
-                x = 0
-            if(y < 0):
-                y = 0
+def b2():
+    global operator
+    global operator1
 
-            state_count = state_count - 1
+    operator=str(operator)
+    operator1=str(operator1)
+    operator=(operator[:-1])
+    operator1=(operator1[:-1])
+    txt.set(str(operator))
+    txt2.set(str(operator1))
+def b101(num3):
+    global operator
+    global operator1
+    global d
+    operator=str(num3)
+    operator1=str(num3)
+    d=num3
+    txt.set(operator)
+    txt2.set(operator)
 
-            roi_rect = x,y,w,h
-            # call hand gesture recognition
-            gestureRecognition(frame,roi_rect,frame[y:y+h, x:x+w])
+#=============first row button=====#
+b11 = Button(right,text="C",padx=14,pady=5,bd=3,fg="black",bg="yellow",font=("arial",34),command =lambda: b101(""))
+b11.grid(row=3,column=7)
+b12 = Button(right,text="/",padx=16,pady=5,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda:b1("/"))
+b12.grid(row=3,column=8)
+b13 = Button(right,text="X",padx=14,pady=8,bd=3,fg="black",bg="yellow",font=("arial",30),command=lambda:b1("*"))
+b13.grid(row=3,column=9)
+b14 = Button(right,text="⌫",padx=1,pady=5,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda:b2())
+b14.grid(row=3,column=10)
 
-        if(not state and state_count == 0):
-            #print gesture_list
-            if(len(gesture_list) > 0):
-                gesture = collections.Counter(gesture_list).most_common(1)[0][0]
-                print(gesture)
-                cv2.putText(frame,str(gesture), (70, 70),cv2.FONT_HERSHEY_SIMPLEX,3, 2, 2)
-                gesture_list = []
-                state = True
+#=============second row button=====#
+b100 = Button(right,text="7",padx=18,pady=12,bd=3,fg= "black",bg="yellow",font=("arial",34),command=lambda: b(7))
+b100.grid(row=4,column=7)
+b200=Button(right,text="8",padx=12,pady=12,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda: b(8))
+b200.grid(row=4,column=8)
+b300 = Button(right,text="9",padx=12,pady=12,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda: b(9))
+b300.grid(row=4,column=9)
+b8 = Button(right,text="-",padx=22,pady=12,bd=3,fg= "black",bg="yellow",font=("arial",34),command=lambda: b1("-"))
+b8.grid(row=4,column=10)
 
-        if(roi_count > 0):
-            roi_count = roi_count - 1
+#=============third row button=====#
+b11 = Button(right,text="+",padx=17,pady=12,bd=3,fg= "black",bg="yellow",font=("arial",34),command=lambda: b1("+"))
+b11.grid(row=5,column=10)
 
-        if(roi_count == 5):
-            state = False
-            state_count = 10
+b6=Button(right,text="6",padx=12,pady=12,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda: b(6))
+b6.grid(row=5,column=9)
+b7=Button(right,text="5",padx=12,pady=12,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda: b(5))
+b7.grid(row=5,column=8)
+b8=Button(right,text="4",padx=18,pady=12,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda: b(4))
+b8.grid(row=5,column=7)
+
+#=============fourth row button=====#
+b4 = Button(right,text="3",padx=12,pady=3,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda: b(3))
+b4.grid(row=6,column=8)
+b5 = Button(right,text="2",padx=12,pady=3,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda: b(2))
+b5.grid(row=6,column=9)
+b5 = Button(right,text="1",padx=18,pady=3,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda: b(1))
+b5.grid(row=6,column=7)
+b15 = Button(right,text="=",padx=15,pady=50,bd=5,fg= "black",bg="yellow",font=("arial",34),command=lambda: b3())
+b15.grid(column=10,rowspan=2,row=6)
+#=============fifth row button=====#
+b6 = Button(right,text="%",padx=12,pady=3,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda: b1("%"))
+b6.grid(row=7,column=7)
+b9= Button(right,text="0",padx=12,pady=3,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda: b(0))
+b9.grid(row=7,column=8)
+b10 = Button(right,text=".",padx=18,pady=3,bd=3,fg="black",bg="yellow",font=("arial",34),command=lambda: b("."))
+b10.grid(row=7,column=9)
+
+#====================top====#
+w=Label(top,text="WELCOME TO OUR PROJECT",fg="red",font=("Colonna MT",70,'bold'))
+w.place(x=0,y=0)
+local_time=time.asctime(time.localtime(time.time()))
+w1=Label(top,font=('DigifaceWide',15,'bold','italic','underline'),text=local_time,bg="yellow",width=40,fg="black",bd=10)
+w1.grid(row=1,column=0)
+#==========left===#
+cc = Button(left,text="open_camera",padx=20,pady=9,bd=3,fg="black",bg="red",font=("arial",75),command=lambda: add(0, back, tup))
+cc.grid(row=2,column=0)
 
 
-    # Display the resulting frame
-    cv2.imshow('frame',frame)
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+#for 1st value
 
-# When everything done, release the capture
-cap.release()
-cv2.destroyAllWindows()
+
+
+
+
+top.mainloop()
